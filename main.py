@@ -1,5 +1,6 @@
 import base64
 import os
+import time
 from time import sleep
 import openai
 import scipy
@@ -33,13 +34,16 @@ def generate_image():
         sleep(120)
         generate_artwork(p + song_list)
     except openai.BadRequestError as error:
+        os.system('clear')
         print("Looks like something was wrong with the prompt. We'll try again with a different prompt.")
         generate_artwork(p)
     image_url = response.data[0].url
+    os.system('clear')
     print(image_url)
 
 
 # region: setup
+os.system('clear')
 # now we check if the user has a .env file, if they don't, we create one and ask them to fill it out
 if not os.path.isfile(".env"):
     print("No .env file found. Seems like you're a first time user. Creating one now.")
@@ -147,8 +151,8 @@ attributes["tempo"] = int(attributes["tempo"] // len(audio_features))
 attributes["loudness"] = int(attributes["loudness"] // len(audio_features))
 
 # print out the averages
-print(
-    f"acousticness: {attributes['acousticness']}%, danceability: {attributes['danceability']}%, energy: {attributes['energy']}%, instrumentalness: {attributes['instrumentalness']}%, liveness: {attributes['liveness']}%, speechiness: {attributes['speechiness']}%, valence: {attributes['valence']}%, tempo: {attributes['tempo']}bpm, loudness: {attributes['loudness']}db.")
+
+
 
 # correlate the averages to a phrase. If the average is below 25, use "low". If the average is above 25 and below 75,
 # use medium. If the average is above 75, use high.
@@ -277,7 +281,8 @@ elif (levels['energy'] == "medium" and levels['loudness'] == "medium" and levels
 # endregion
 
 
-p = f'I am going to describe the artwork for a playlist called "{selected_playlist["name"]}". The playlist is '
+p = (f'I am going to describe the artwork for a playlist called "{selected_playlist["name"]}". DO NOT INCLUDE TEXT OR '
+     f'PEOPLE IN THE ARTWORK. The playlist is ')
 
 for value in music_describers:
     p += value + " "
@@ -296,13 +301,17 @@ for i, track in enumerate(tracks['items']):
         continue
     song_list += track['track']['name'] + "\n"
 
-print("using prompt:" + p + song_list)
+os.system('clear')
+print(
+    f"acousticness: {attributes['acousticness']}%, danceability: {attributes['danceability']}%, energy: {attributes['energy']}%, instrumentalness: {attributes['instrumentalness']}%, liveness: {attributes['liveness']}%, speechiness: {attributes['speechiness']}%, valence: {attributes['valence']}%, tempo: {attributes['tempo']}bpm, loudness: {attributes['loudness']}db.")
+print("Selected playlist: " + selected_playlist['name'] + "\n")
 client = openai.OpenAI()
 
 response = None
 
 generate_image()
 userResponse = ""
+
 while userResponse.lower() != "exit":
 
     print("Done! Press enter to apply the artwork, 'exit' to exit, or 'retry' to generate a new artwork.")
@@ -310,7 +319,7 @@ while userResponse.lower() != "exit":
     if userResponse.lower() == "exit":
         break
     elif userResponse == "":
-
+        os.system('clear')
         print("Applying artwork...")
         # formats the image url to be in base64 as a jpg
         urllib.request.urlretrieve(image_url, "image.png")
@@ -322,10 +331,18 @@ while userResponse.lower() != "exit":
         with open("image.jpg", "rb") as f:
             encoded_image = base64.b64encode(f.read()).decode('utf-8')
 
+
+        time.sleep(5)
+        try:
+            sp.playlist_upload_cover_image(selected_playlist['id'], encoded_image)
+        except Exception as e:
+            os.system('clear')
+            print("Looks like something went wrong. I've saved the photo for you locally. Here's the error if you need it: " + str(e))
+
+            exit(0)
         os.remove("image.png")
         os.remove("image.jpg")
-
-        sp.playlist_upload_cover_image(selected_playlist['id'], encoded_image)
+        os.system('clear')
         print("Done!")
         break
 
