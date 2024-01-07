@@ -8,20 +8,49 @@ from spotipy import SpotifyOAuth
 from dotenv import load_dotenv
 from profanity_check import predict_prob
 import urllib.request
+import requests
 
 # region: setup
-load_dotenv()
+# now we check if the user has a .env file, if they don't, we create one and ask them to fill it out
+if not os.path.isfile(".env"):
+    print("No .env file found. Seems like you're a first time user. Creating one now.")
+    f = open(".env", "w+")
+    print(".env file created. In order to use this program, you need to fill out the .env file with your Spotify API ")
+    print("credentials. You can get them from https://developer.spotify.com/dashboard/applications. Press create app,")
+    print("then fill out the form. Check the  Use http://127.0.0.1:3000/ as the redirect url. Everything else doesn't "
+          "matter.")
+    print("Once you've created the app, you can find your client id and client secret by clicking on the app and ")
+    print("hitting settings. Paste your CLIENT ID below.")
+    f.write("SPOTIPY_CLIENT_ID=" + input("CLIENT ID: ") + "\n")
+    print("Now paste your CLIENT SECRET below.")
+    f.write("SPOTIPY_CLIENT_SECRET=" + input("CLIENT SECRET: ") + "\n")
+    f.write("SPOTIPY_REDIRECT_URI=http://localhost:3000/\n")
+    print("Now we need an openai api key. You can get one from https://beta.openai.com/account/api-keys. Create an "
+          "account if you don't have one, then paste your api key below.")
+    f.write("OPENAI_API_KEY=" + input("API KEY: ") + "\n")
+    f.close()
+    print("Created .env file.")
+    exit(0)
 
+load_dotenv()
 SPOTIPY_CLIENT_ID = os.environ.get("SPOTIPY_CLIENT_ID")
 SPOTIPY_CLIENT_SECRET = os.environ.get("SPOTIPY_CLIENT_SECRET")
 SPOTIPY_REDIRECT_URI = os.environ.get("SPOTIPY_REDIRECT_URI")
 
-s = ["user-library-read", "playlist-read-private", "ugc-image-upload"]
+s = ["user-library-read", "playlist-read-private", "ugc-image-upload", "playlist-modify-public", "playlist-modify"
+                                                                                                 "-private"]
 
-sp = spotipy.Spotify(auth_manager=SpotifyOAuth(client_id=SPOTIPY_CLIENT_ID,
-                                               client_secret=SPOTIPY_CLIENT_SECRET,
-                                               redirect_uri=SPOTIPY_REDIRECT_URI,
-                                               scope=s))
+try:
+    sp = spotipy.Spotify(auth_manager=SpotifyOAuth(client_id=SPOTIPY_CLIENT_ID,
+                                                   client_secret=SPOTIPY_CLIENT_SECRET,
+                                                   redirect_uri=SPOTIPY_REDIRECT_URI,
+                                                   scope=s))
+except spotipy.oauth2 as e:
+    print("Looks like your .env file is invalid. Resetting it now.")
+    os.remove(".env")
+    print("Here is the error if you need it:" + e)
+    exit(0)
+
 user = sp.me()
 # endregion
 
@@ -128,10 +157,9 @@ p = (f'Create an abstract image, gradient, or scenery for a playlist artwork tha
      )
 song_list = ""
 
-
 loopNum = 5
 for i, track in enumerate(tracks['items']):
-    if i >= max(loopNum, len(tracks['items'])):
+    if i >= min(loopNum, len(tracks['items'])):
         break
     # check if the track's name contains bad words
     if predict_prob([track['track']['name']]) == 1:
@@ -141,6 +169,8 @@ for i, track in enumerate(tracks['items']):
 
 print("using prompt:" + p + song_list)
 client = openai.OpenAI()
+
+response = None
 
 
 def generate_artwork(i):
@@ -188,9 +218,9 @@ while userResponse.lower() != "exit":
         with open("image.jpg", "rb") as f:
             encoded_image = base64.b64encode(f.read()).decode('utf-8')
 
-        print(encoded_image)
         # remove the image
         os.remove("image.png")
+        os.remove("image.jpg")
         sp.playlist_upload_cover_image(selected_playlist['id'], encoded_image)
         print("Done!")
         break
