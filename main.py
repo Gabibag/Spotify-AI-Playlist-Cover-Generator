@@ -118,40 +118,30 @@ for track in tracks['items']:
 
 audio_features = sp.audio_features(track_ids)
 attributes = {
-    "acousticness": 0,
-    "danceability": 0,
-    "energy": 0,
-    "instrumentalness": 0,
-    "liveness": 0,
-    "speechiness": 0,
-    "valence": 0,
-    "tempo": 0,
-    "loudness": 0
+    "acousticness": [],
+    "danceability": [],
+    "energy": [],
+    "instrumentalness": [],
+    "liveness": [],
+    "speechiness": [],
+    "valence": [],
+    "tempo": [],
+    "loudness": []
 }
 
 for feature in audio_features:
-    attributes["acousticness"] += feature["acousticness"]
-    attributes["danceability"] += feature["danceability"]
-    attributes["energy"] += feature["energy"]
-    attributes["instrumentalness"] += feature["instrumentalness"]
-    attributes["liveness"] += feature["liveness"]
-    attributes["speechiness"] += feature["speechiness"]
-    attributes["valence"] += feature["valence"]
-    attributes["tempo"] += feature["tempo"]
-    attributes["loudness"] += feature["loudness"]
-
-attributes["acousticness"] = int(attributes["acousticness"] * 100 // len(audio_features))
-attributes["danceability"] = int(attributes["danceability"] * 100 // len(audio_features))
-attributes["energy"] = int(attributes["energy"] * 100 // len(audio_features))
-attributes["instrumentalness"] = int(attributes["instrumentalness"] * 100 // len(audio_features))
-attributes["liveness"] = int(attributes["liveness"] * 100 // len(audio_features))
-attributes["speechiness"] = int(attributes["speechiness"] * 100 // len(audio_features))
-attributes["valence"] = int(attributes["valence"] * 100 // len(audio_features))
-attributes["tempo"] = int(attributes["tempo"] // len(audio_features))
-attributes["loudness"] = int(attributes["loudness"] // len(audio_features))
-
-# print out the averages
-
+    attributes["acousticness"].append(feature["acousticness"])
+    attributes["danceability"].append(feature["danceability"])
+    attributes["energy"].append(feature["energy"])
+    attributes["instrumentalness"].append(feature["instrumentalness"])
+    attributes["liveness"].append(feature["liveness"])
+    attributes["speechiness"].append(feature["speechiness"])
+    attributes["valence"].append(feature["valence"])
+    attributes["tempo"].append(feature["tempo"])
+    attributes["loudness"].append(feature["loudness"])
+# find median of each attribute
+for key, value in attributes.items():
+    attributes[key] = np.median(value)
 
 
 # correlate the averages to a phrase. If the average is below 25, use "low". If the average is above 25 and below 75,
@@ -190,16 +180,16 @@ music_describers = []
 
 # region: colors
 if levels['valence'] == "sad":
-    music_describers.append("The artwork should be a dark forms for colors, like dark green, dark purple, dark blue, "
-                            "etc.")
+    music_describers.append("The artwork should be in a darker colors. Mainly either dark blue, dark purple, "
+                            "dark green, or black.")
 elif levels['valence'] == "happy" or levels['danceability'] == "high":
-    music_describers.append("The artwork should be a bright, vibrant colors, like yellow, orange or red")
+    music_describers.append("The artwork should be a bright, vibrant colors.")
 elif levels['acousticness'] == "high":
-    music_describers.append("The artwork should be in orange sunset colors, like orange, yellow.")
+    music_describers.append("The artwork should be in orange sunset colors.")
 elif levels['energy'] == "low":
-    music_describers.append("The artwork should be in cool colors, like blue or green.")
+    music_describers.append("The artwork should be in cool colors.")
 elif levels['energy'] == "high":
-    music_describers.append("The artwork should be in warm colors, like red or orange.")
+    music_describers.append("The artwork should be in warm colors.")
 elif levels['speechiness'] == "high":
     music_describers.append("The artwork should be beige, off white, light grey or brown colors.")
 else:
@@ -254,6 +244,14 @@ elif (
         (levels['acousticness'] == "low" and levels['loudness'] != "low")
 ):
     music_describers.append("The artwork should be a roughly textured with noise")
+elif (
+        (levels['energy'] == "low" and levels['loudness'] != "high")
+        or
+        (levels['valence'] == "sad" and levels['loudness'] != "high")
+        or
+        (levels['acousticness'] == "high" and levels['loudness'] != "high")
+):
+    music_describers.append("The artwork should be a rough texture, like a watercolor painting")
 # endregion
 # region: objects
 if (
@@ -263,7 +261,7 @@ if (
         or
         (levels['acousticness'] == "low" and levels['loudness'] != "low")
 ):
-    music_describers.append("The artwork should be an abstract scene, such as a sunset.")
+    music_describers.append("The artwork should be an abstract scene.")
 elif (
         (levels['valence'] == "sad" and levels['energy'] != "high")
         or
@@ -271,12 +269,13 @@ elif (
         or
         (levels['acousticness'] == "high" and levels['loudness'] != "high")
 ):
-    music_describers.append("The artwork should be a realistic object in the outdoors, such as a moon or a flower.")
+    music_describers.append("The artwork should be a realistic scenery with the focus on a single object in the "
+                            "outdoors.")
     # neutral scene
 elif (levels['energy'] == "medium" and levels['loudness'] == "medium" and levels['acousticness'] == "medium"
       and levels['valence'] == "neutral"):
     music_describers.append("The artwork should be a simple shape, such as a circle or a square. Include only one "
-                            "shape, and use only two colors.")
+                            "shape, and use only two colors. Be minimalistic.")
 
 # endregion
 
@@ -305,6 +304,8 @@ os.system('clear')
 print(
     f"acousticness: {attributes['acousticness']}%, danceability: {attributes['danceability']}%, energy: {attributes['energy']}%, instrumentalness: {attributes['instrumentalness']}%, liveness: {attributes['liveness']}%, speechiness: {attributes['speechiness']}%, valence: {attributes['valence']}%, tempo: {attributes['tempo']}bpm, loudness: {attributes['loudness']}db.")
 print("Selected playlist: " + selected_playlist['name'] + "\n")
+
+print("\n\n\n Here's the prompt we're sending to OpenAI: " + p + song_list)
 client = openai.OpenAI()
 
 response = None
@@ -316,6 +317,7 @@ while userResponse.lower() != "exit":
 
     print("Done! Press enter to apply the artwork, 'exit' to exit, or 'retry' to generate a new artwork.")
     userResponse = input()
+
     if userResponse.lower() == "exit":
         break
     elif userResponse == "":
@@ -345,5 +347,5 @@ while userResponse.lower() != "exit":
         os.system('clear')
         print("Done!")
         break
-
+    os.system('clear')
     generate_image()
