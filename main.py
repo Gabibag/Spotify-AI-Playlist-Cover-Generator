@@ -2,13 +2,42 @@ import base64
 import os
 from time import sleep
 import openai
+import scipy
 import spotipy
 from PIL import Image
 from spotipy import SpotifyOAuth
 from dotenv import load_dotenv
 from profanity_check import predict_prob
 import urllib.request
-import requests
+import numpy as np
+
+
+def generate_artwork(i):
+    global response
+    response = client.images.generate(
+        model="dall-e-3",
+        prompt=i,
+        size="1024x1024",
+        quality="standard",
+        n=1,
+    )
+
+
+def generate_image():
+    global error, image_url
+    print("Generating artwork...")
+    try:
+        generate_artwork(p + song_list)
+    except openai.RateLimitError as error:
+        print("Rate limited, will try again in 2 minutes.")
+        sleep(120)
+        generate_artwork(p + song_list)
+    except openai.BadRequestError as error:
+        print("Looks like something was wrong with the prompt. We'll try again with a different prompt.")
+        generate_artwork(p)
+    image_url = response.data[0].url
+    print(image_url)
+
 
 # region: setup
 # now we check if the user has a .env file, if they don't, we create one and ask them to fill it out
@@ -54,10 +83,9 @@ except spotipy.oauth2 as e:
 user = sp.me()
 # endregion
 
+# region: get data
 # get a list of playlists and print them out, then ask the user to select one
 playlists = sp.current_user_playlists()
-# check the size of the playlist, then detirmine the wait time to avoid rate limiting
-
 
 for i, playlist in enumerate(playlists['items']):
     if playlist['owner']['id'] != user['id']:
@@ -85,7 +113,6 @@ for track in tracks['items']:
     track_ids.append(track['track']['id'])
 
 audio_features = sp.audio_features(track_ids)
-
 attributes = {
     "acousticness": 0,
     "danceability": 0,
@@ -94,7 +121,8 @@ attributes = {
     "liveness": 0,
     "speechiness": 0,
     "valence": 0,
-    "tempo": 0
+    "tempo": 0,
+    "loudness": 0
 }
 
 for feature in audio_features:
@@ -106,6 +134,7 @@ for feature in audio_features:
     attributes["speechiness"] += feature["speechiness"]
     attributes["valence"] += feature["valence"]
     attributes["tempo"] += feature["tempo"]
+    attributes["loudness"] += feature["loudness"]
 
 attributes["acousticness"] = int(attributes["acousticness"] * 100 // len(audio_features))
 attributes["danceability"] = int(attributes["danceability"] * 100 // len(audio_features))
@@ -115,46 +144,146 @@ attributes["liveness"] = int(attributes["liveness"] * 100 // len(audio_features)
 attributes["speechiness"] = int(attributes["speechiness"] * 100 // len(audio_features))
 attributes["valence"] = int(attributes["valence"] * 100 // len(audio_features))
 attributes["tempo"] = int(attributes["tempo"] // len(audio_features))
+attributes["loudness"] = int(attributes["loudness"] // len(audio_features))
 
 # print out the averages
 print(
-    f"acousticness: {attributes['acousticness']}%, danceability: {attributes['danceability']}%, energy: {attributes['energy']}%, instrumentalness: {attributes['instrumentalness']}%, liveness: {attributes['liveness']}%, speechiness: {attributes['speechiness']}%, valence: {attributes['valence']}%, tempo: {attributes['tempo']}bpm.")
-
-# endregion
+    f"acousticness: {attributes['acousticness']}%, danceability: {attributes['danceability']}%, energy: {attributes['energy']}%, instrumentalness: {attributes['instrumentalness']}%, liveness: {attributes['liveness']}%, speechiness: {attributes['speechiness']}%, valence: {attributes['valence']}%, tempo: {attributes['tempo']}bpm, loudness: {attributes['loudness']}db.")
 
 # correlate the averages to a phrase. If the average is below 25, use "low". If the average is above 25 and below 75,
 # use medium. If the average is above 75, use high.
-attribute_levels = {}
+levels = {}
 for key, value in attributes.items():
-    if value < 25:
-        attribute_levels[key] = "low"
-    elif 25 < value < 75:
-        attribute_levels[key] = "medium"
+    if value < 0:
+        # it's loudness, so we want to use negative numbers
+        if value > -2:
+            levels[key] = "high"
+        elif -2 > value > -6:
+            levels[key] = "medium"
+        else:
+            levels[key] = "low"
+
+    if value < 35:
+        levels[key] = "low"
+    elif 35 < value < 60:
+        levels[key] = "medium"
     else:
-        attribute_levels[key] = "high"
+        levels[key] = "high"
 
 # special check for valence, replace low with sad, medium with neutral, and high with happy
-v = attribute_levels['valence']
+v = levels['valence']
 if v == "low":
     v = "sad"
 elif v == "medium":
     v = "neutral"
 elif v == "high":
     v = "happy"
-attribute_levels['valence'] = v
+levels['valence'] = v
+# endregion
 
-p = (f'Create an abstract image, gradient, or scenery for a playlist artwork that represents the playlist\'s '
-     f'attributes through colours. Create unique gradients, scenery, objects, or color to depict the '
-     f'attributes. DO NOT USE TEXT IN THE IMAGE. DO NOT '
-     f'USE PEOPLE IN '
-     f'THE IMAGE. The name of the playlist is {selected_playlist["name"]}, theme the playlist around that. The '
-     f'playlist\'s attributes '
-     f'are: acousticness: {attribute_levels["acousticness"]}, danceability: {attribute_levels["danceability"]}, '
-     f'energy: {attribute_levels["energy"]}, instrumentalness: {attribute_levels["instrumentalness"]}, liveness: '
-     f'{attribute_levels["liveness"]}, speechiness: {attribute_levels["speechiness"]}, mood: '
-     f'{attribute_levels["valence"]}. The playlist\'s tracks are: \n'
+# region: generate artwork
+music_describers = []
 
-     )
+# region: colors
+if levels['valence'] == "sad":
+    music_describers.append("The artwork should be a dark forms for colors, like dark green, dark purple, dark blue, "
+                            "etc.")
+elif levels['valence'] == "happy" or levels['danceability'] == "high":
+    music_describers.append("The artwork should be a bright, vibrant colors, like yellow, orange or red")
+elif levels['acousticness'] == "high":
+    music_describers.append("The artwork should be in orange sunset colors, like orange, yellow.")
+elif levels['energy'] == "low":
+    music_describers.append("The artwork should be in cool colors, like blue or green.")
+elif levels['energy'] == "high":
+    music_describers.append("The artwork should be in warm colors, like red or orange.")
+elif levels['speechiness'] == "high":
+    music_describers.append("The artwork should be beige, off white, light grey or brown colors.")
+else:
+    # try grabbing the colors from 4 songs in the playlist using the track id
+    img_urls = []
+    for i, track in enumerate(tracks['items']):
+        if i >= 4:
+            break
+        img_urls.append(sp.track(track['track']['id'])['album']['images'][0])
+    imgs = []
+    colors = []
+    for url in img_urls:
+        urllib.request.urlretrieve(url['url'], "image.png")
+        imgs.append(Image.open("image.png"))
+        os.remove("image.png")
+    # get the average color of each image and store it in colors.
+    for img in imgs:
+        # dominant color in the image
+        ar = np.asarray(img)
+        shape = ar.shape
+        ar = ar.reshape(np.product(shape[:2]), shape[2]).astype(float)
+        codes, dist = scipy.cluster.vq.kmeans(ar, 5)
+        vecs, dist = scipy.cluster.vq.vq(ar, codes)
+        counts, bins = np.histogram(vecs, len(codes))
+        index_max = np.argmax(counts)
+        peak = codes[index_max]
+        peak = peak.astype(int)
+        colors.append(peak)
+    # convert the colors to hex
+    for i, color in enumerate(colors):
+        colors[i] = '#%02x%02x%02x' % (color[0], color[1], color[2])
+
+    music_describers.append(f"The artwork should be in the colors {colors[0]}, {colors[1]}, {colors[2]}, and "
+                            f"{colors[3]}")
+# endregion
+# region: texture
+if (
+        (levels['valence'] != "happy" and levels['energy'] == "low" and levels["loudness"] != "high")
+        or
+        (levels['energy'] == "low" and levels['loudness'] == "low")
+        or
+        (levels['acousticness'] == "high" and levels['loudness'] == "medium")
+        or
+        (levels['speechiness'] == "low" and levels['loudness'] == "low")
+):
+    music_describers.append("The artwork should be a smooth texture, like a gradient")
+elif (
+        (levels['energy'] == "high" and levels['loudness'] != "low")
+        or
+        (levels['valence'] == "happy" and levels['loudness'] != "low")
+        or
+        (levels['acousticness'] == "low" and levels['loudness'] != "low")
+):
+    music_describers.append("The artwork should be a roughly textured with noise")
+# endregion
+# region: objects
+if (
+        (levels['valence'] == "happy" and levels['energy'] != "low")
+        or
+        (levels['energy'] == "high" and levels['loudness'] != "low")
+        or
+        (levels['acousticness'] == "low" and levels['loudness'] != "low")
+):
+    music_describers.append("The artwork should be an abstract scene, such as a sunset.")
+elif (
+        (levels['valence'] == "sad" and levels['energy'] != "high")
+        or
+        (levels['energy'] == "low" and levels['loudness'] != "high")
+        or
+        (levels['acousticness'] == "high" and levels['loudness'] != "high")
+):
+    music_describers.append("The artwork should be a realistic object in the outdoors, such as a moon or a flower.")
+    # neutral scene
+elif (levels['energy'] == "medium" and levels['loudness'] == "medium" and levels['acousticness'] == "medium"
+      and levels['valence'] == "neutral"):
+    music_describers.append("The artwork should be a simple shape, such as a circle or a square. Include only one "
+                            "shape, and use only two colors.")
+
+# endregion
+
+
+p = f'I am going to describe the artwork for a playlist called "{selected_playlist["name"]}". The playlist is '
+
+for value in music_describers:
+    p += value + " "
+
+p += "Here are some songs from the playlist:\n"
+
 song_list = ""
 
 loopNum = 5
@@ -172,30 +301,7 @@ client = openai.OpenAI()
 
 response = None
 
-
-def generate_artwork(i):
-    global response
-    response = client.images.generate(
-        model="dall-e-3",
-        prompt=i,
-        size="1024x1024",
-        quality="standard",
-        n=1,
-    )
-
-
-print("Generating artwork...")
-try:
-    generate_artwork(p + song_list)
-except openai.RateLimitError as error:
-    print("Rate limited, will try again in 2 minutes.")
-    sleep(120)
-    generate_artwork(p + song_list)
-except openai.BadRequestError as error:
-    print("Looks like something was wrong with the prompt. We'll try again with a different prompt.")
-    generate_artwork(p)
-image_url = response.data[0].url
-print(image_url)
+generate_image()
 userResponse = ""
 while userResponse.lower() != "exit":
 
@@ -204,36 +310,23 @@ while userResponse.lower() != "exit":
     if userResponse.lower() == "exit":
         break
     elif userResponse == "":
+
         print("Applying artwork...")
-        # encode the image url to base64
+        # formats the image url to be in base64 as a jpg
         urllib.request.urlretrieve(image_url, "image.png")
-        # convert the image to jpeg
         im = Image.open("image.png")
         rgb_im = im.convert('RGB')
         rgb_im.save('image.jpg')
-        # encode the image to base64
-
         with open("image.jpg", "rb") as f:
             image = open("image.jpg", 'rb')
         with open("image.jpg", "rb") as f:
             encoded_image = base64.b64encode(f.read()).decode('utf-8')
 
-        # remove the image
         os.remove("image.png")
         os.remove("image.jpg")
+
         sp.playlist_upload_cover_image(selected_playlist['id'], encoded_image)
         print("Done!")
         break
 
-    print("Generating artwork...")
-    try:
-        generate_artwork(p + song_list)
-    except openai.RateLimitError as error:
-        print("Rate limited, will try again in 2 minutes.")
-        sleep(120)
-        generate_artwork(p + song_list)
-    except openai.BadRequestError as error:
-        print("Looks like something was wrong with the prompt. We'll try again with a different prompt.")
-        generate_artwork(p)
-    image_url = response.data[0].url
-    print(image_url)
+    generate_image()
