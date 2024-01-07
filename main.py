@@ -191,12 +191,7 @@ while userResponse.lower() != "exit":
         print(encoded_image)
         # remove the image
         os.remove("image.png")
-        try:
-            sp.playlist_upload_cover_image(selected_playlist['id'], encoded_image)
-        except Exception as error:
-            print(error)
-            print("Something went wrong uploading the image. Try again later.")
-            break
+        sp.playlist_upload_cover_image(selected_playlist['id'], encoded_image)
         print("Done!")
         break
 
