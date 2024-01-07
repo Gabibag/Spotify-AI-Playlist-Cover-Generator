@@ -1,8 +1,10 @@
 import base64
 import os
+import random
 import time
 from time import sleep
 import openai
+import requests.exceptions
 import scipy
 import spotipy
 from PIL import Image
@@ -40,6 +42,14 @@ def generate_image():
     image_url = response.data[0].url
     os.system('clear')
     print(image_url)
+
+
+def remove_all(word, text):
+    # remove all instances of word regardless of case in a text, which is a string
+    text = text.lower()
+    word = word.lower()
+    text = text.replace(" " + word + " ", "")
+    return text
 
 
 # region: setup
@@ -89,8 +99,9 @@ user = sp.me()
 
 # region: get data
 # get a list of playlists and print them out, then ask the user to select one
+print("Getting playlists...")
 playlists = sp.current_user_playlists()
-
+os.system('clear')
 for i, playlist in enumerate(playlists['items']):
     if playlist['owner']['id'] != user['id']:
         continue
@@ -141,8 +152,7 @@ for feature in audio_features:
     attributes["loudness"].append(feature["loudness"])
 # find median of each attribute
 for key, value in attributes.items():
-    attributes[key] = np.median(value)
-
+    attributes[key] = int(np.median(value) * (100 if key != "loudness" or key != "tempo" else 1))
 
 # correlate the averages to a phrase. If the average is below 25, use "low". If the average is above 25 and below 75,
 # use medium. If the average is above 75, use high.
@@ -150,16 +160,16 @@ levels = {}
 for key, value in attributes.items():
     if value < 0:
         # it's loudness, so we want to use negative numbers
-        if value > -2:
+        if value > -4:
             levels[key] = "high"
-        elif -2 > value > -6:
+        elif -4 > value > -8:
             levels[key] = "medium"
         else:
             levels[key] = "low"
 
-    if value < 35:
+    if value < 30:
         levels[key] = "low"
-    elif 35 < value < 60:
+    elif 35 < value < 70:
         levels[key] = "medium"
     else:
         levels[key] = "high"
@@ -179,9 +189,11 @@ levels['valence'] = v
 music_describers = []
 
 # region: colors
-if levels['valence'] == "sad":
+if levels['valence'] == "sad" and levels['danceability'] == "low":
     music_describers.append("The artwork should be in a darker colors. Mainly either dark blue, dark purple, "
                             "dark green, or black.")
+if levels['valence'] == "sad" and levels['danceability'] == "high":
+    music_describers.append("The artwork should be aggressive and bright colors.")
 elif levels['valence'] == "happy" or levels['danceability'] == "high":
     music_describers.append("The artwork should be a bright, vibrant colors.")
 elif levels['acousticness'] == "high":
@@ -252,6 +264,12 @@ elif (
         (levels['acousticness'] == "high" and levels['loudness'] != "high")
 ):
     music_describers.append("The artwork should be a rough texture, like a watercolor painting")
+else:
+    textures = ["smooth", "rough", "soft", "hard", "grainy", "blurry", "sharp", "wet", "dry", "fuzzy", "sticky",
+                "shiny", "dull", "glossy", "sandy", "bumpy", "fluffy", "prickly", "slimy", "slippery", "spongy",
+                "wooly", "powdery", "silk", "velvet", "leather", "metallic", "plastic", "rubber", "glass", "wooden",
+                "paper", "cotton"]
+    music_describers.append(f"The artwork should be a {textures[random.randint(0, len(textures) - 1)]} texture")
 # endregion
 # region: objects
 if (
@@ -276,8 +294,30 @@ elif (levels['energy'] == "medium" and levels['loudness'] == "medium" and levels
       and levels['valence'] == "neutral"):
     music_describers.append("The artwork should be a simple shape, such as a circle or a square. Include only one "
                             "shape, and use only two colors. Be minimalistic.")
+else:
+    objects = []
+    # grab 4 songs from the playlist and get the title of each song. Remove articles from the titles
+    words_to_remove = ["the", "a", "an", "of", "and", "or", "but", "is", "are", "was", "were", "be", "to", "in",
+                       "on", "at", "for", "by", "with", "from", "up", "about", "into", "through", "during", "before",
+                       "after", "above", "below", "to", "from", "up", "down", "in", "out", "off", "over", "under", "my",
+                       "your", "his", "her", "its", "our", "their", "this", "that", "these", "those", "which", "who",
+                       "what", "where", "when", "why", "how", "all", "any", "both", "each", "few", "more", "most",
+                       "other", "some", "such", "no", "nor", "not", "only", "own", "same", "so", "than", "too",
+                       "very", "s", "t", "can", "will", "just", "don", "should", "now"]
+
+    for i, track in enumerate(tracks['items']):
+        if i >= 4:
+            break
+        title = track['track']['name']
+        for word in words_to_remove:
+            title = remove_all(word, title)
+            # remove everything after a parenthesis
+            title = title.split("(")[0]
+        objects.append(title)
+    music_describers.append(f"The artwork should be a scene with {objects[random.randint(0, len(objects) - 1)]} in it.")
 
 # endregion
+# replace all instances of the word regardless of case
 
 
 p = (f'I am going to describe the artwork for a playlist called "{selected_playlist["name"]}". DO NOT INCLUDE TEXT OR '
@@ -333,16 +373,24 @@ while userResponse.lower() != "exit":
         with open("image.jpg", "rb") as f:
             encoded_image = base64.b64encode(f.read()).decode('utf-8')
 
+        os.remove("image.png")
 
         time.sleep(5)
         try:
             sp.playlist_upload_cover_image(selected_playlist['id'], encoded_image)
+        # see if it timed out
         except Exception as e:
+            # retry after 30 seconds
+            print("Looks like you've been rate limited. I'll try again in a couple seconds.")
+            sleep(30)
             os.system('clear')
-            print("Looks like something went wrong. I've saved the photo for you locally. Here's the error if you need it: " + str(e))
-
+            print("Applying artwork...")
+            try:
+                sp.playlist_upload_cover_image(selected_playlist['id'], encoded_image)
+            except Exception as e:
+                print("Looks like something went wrong. Try again later. Here's the error if you need it: " + str(e))
+                exit(0)
             exit(0)
-        os.remove("image.png")
         os.remove("image.jpg")
         os.system('clear')
         print("Done!")
