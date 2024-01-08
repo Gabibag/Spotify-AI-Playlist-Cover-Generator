@@ -117,11 +117,10 @@ selected_playlist = playlists['items'][selection]
 # clear the console
 os.system('clear')
 print(f"Selected playlist: {selected_playlist['name']}")
-
+print("Getting playlist data...")
 # get the tracks from the selected playlist, and get the average acousticness, danceability, energy,
 # instrumentalness, liveness, speechiness, and valence
 
-sleep(10)
 tracks = sp.playlist_items(selected_playlist['id'])
 track_ids = []
 for track in tracks['items']:
@@ -207,9 +206,14 @@ elif levels['speechiness'] == "high":
 else:
     # try grabbing the colors from 4 songs in the playlist using the track id
     img_urls = []
+    num = 4
     for i, track in enumerate(tracks['items']):
-        if i >= 4:
+        if i >= num:
             break
+        #check if url appears in img_urls
+        if sp.track(track['track']['id'])['album']['images'][0] in img_urls:
+            num += 1
+            continue
         img_urls.append(sp.track(track['track']['id'])['album']['images'][0])
     imgs = []
     colors = []
@@ -375,7 +379,6 @@ while userResponse.lower() != "exit":
 
         os.remove("image.png")
 
-        time.sleep(5)
         try:
             sp.playlist_upload_cover_image(selected_playlist['id'], encoded_image)
         # see if it timed out
@@ -383,6 +386,7 @@ while userResponse.lower() != "exit":
             # retry after 30 seconds
             print("Looks like you've been rate limited. I'll try again in a couple seconds.")
             sleep(30)
+
             os.system('clear')
             print("Applying artwork...")
             try:
