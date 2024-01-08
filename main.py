@@ -30,11 +30,11 @@ def generate_image():
     global error, image_url
     print("Generating artwork...")
     try:
-        generate_artwork(p + song_list)
+        generate_artwork(p)
     except openai.RateLimitError as error:
         print("Rate limited, will try again in 2 minutes.")
         sleep(120)
-        generate_artwork(p + song_list)
+        generate_artwork(p)
     except openai.BadRequestError as error:
         os.system('clear')
         print("Looks like something was wrong with the prompt. We'll try again with a different prompt.")
@@ -48,7 +48,7 @@ def remove_all(word, text):
     # remove all instances of word regardless of case in a text, which is a string
     text = text.lower()
     word = word.lower()
-    text = text.replace(" " + word + " ", "")
+    text = text.replace(" " + word + " ", " ")
     return text
 
 
@@ -237,9 +237,14 @@ else:
     # convert the colors to hex
     for i, color in enumerate(colors):
         colors[i] = '#%02x%02x%02x' % (color[0], color[1], color[2])
-
-    music_describers.append(f"The artwork should be in the colors {colors[0]}, {colors[1]}, {colors[2]}, and "
-                            f"{colors[3]}")
+    s = "The artwork should be only in the color " if len(colors) == 1 else "The artwork should be in the colors "
+    for i, color in enumerate(colors):
+        if i == len(colors) - 1 and len(colors) > 1:
+            s += "and " + color
+        else:
+            s += color + ", "
+    s = s[:-2] + "."
+    music_describers.append(s)
 # endregion
 # region: texture
 if (
@@ -291,13 +296,12 @@ elif (
         or
         (levels['acousticness'] == "high" and levels['loudness'] != "high")
 ):
-    music_describers.append("The artwork should be a realistic scenery with the focus on a single object in the "
-                            "outdoors.")
+    music_describers.append("The artwork should be a realistic scenery with the focus on a single object")
     # neutral scene
 elif (levels['energy'] == "medium" and levels['loudness'] == "medium" and levels['acousticness'] == "medium"
       and levels['valence'] == "neutral"):
-    music_describers.append("The artwork should be a simple shape, such as a circle or a square. Include only one "
-                            "shape, and use only two colors. Be minimalistic.")
+    music_describers.append("The artwork should be a simple shape, such as a circle, square, triangle, diamond, "
+                            "or a hexagon. Include only one shape, and use only two colors. Be minimalistic.")
 else:
     objects = []
     # grab 4 songs from the playlist and get the title of each song. Remove articles from the titles
@@ -318,7 +322,8 @@ else:
             # remove everything after a parenthesis
             title = title.split("(")[0]
         objects.append(title)
-    music_describers.append(f"The artwork should be a scene with {objects[random.randint(0, len(objects) - 1)]} in it.")
+    print(objects)
+    music_describers.append(f"The artwork should be a scene with {objects[random.randint(0, len(objects)-1)]} in it.")
 
 # endregion
 # replace all instances of the word regardless of case
@@ -330,26 +335,12 @@ p = (f'I am going to describe the artwork for a playlist called "{selected_playl
 for value in music_describers:
     p += value + " "
 
-p += "Here are some songs from the playlist:\n"
-
-song_list = ""
-
-loopNum = 5
-for i, track in enumerate(tracks['items']):
-    if i >= min(loopNum, len(tracks['items'])):
-        break
-    # check if the track's name contains bad words
-    if predict_prob([track['track']['name']]) == 1:
-        loopNum += 1
-        continue
-    song_list += track['track']['name'] + "\n"
-
 os.system('clear')
 print(
     f"acousticness: {attributes['acousticness']}%, danceability: {attributes['danceability']}%, energy: {attributes['energy']}%, instrumentalness: {attributes['instrumentalness']}%, liveness: {attributes['liveness']}%, speechiness: {attributes['speechiness']}%, valence: {attributes['valence']}%, tempo: {attributes['tempo']}bpm, loudness: {attributes['loudness']}db.")
 print("Selected playlist: " + selected_playlist['name'] + "\n")
 
-print("\n\n\n Here's the prompt we're sending to OpenAI: " + p + song_list)
+print("\n\n\n Here's the prompt we're sending to OpenAI: " + p)
 client = openai.OpenAI()
 
 response = None
