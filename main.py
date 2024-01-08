@@ -4,15 +4,14 @@ import random
 import time
 from time import sleep
 import openai
-import requests.exceptions
 import scipy
 import spotipy
 from PIL import Image
 from spotipy import SpotifyOAuth
 from dotenv import load_dotenv
-from profanity_check import predict_prob
 import urllib.request
 import numpy as np
+import requests as rq
 
 
 def generate_artwork(i):
@@ -24,6 +23,8 @@ def generate_artwork(i):
         quality="standard",
         n=1,
     )
+
+
 
 
 def generate_image():
@@ -40,8 +41,11 @@ def generate_image():
         print("Looks like something was wrong with the prompt. We'll try again with a different prompt.")
         generate_artwork(p)
     image_url = response.data[0].url
+    # send the url to a url shortener
+    u = rq.post("https://cleanuri.com/api/v1/shorten", data={"url": image_url}).json()["result_url"]
     os.system('clear')
-    print(image_url)
+    print(u)
+    return image_url
 
 
 def remove_all(word, text):
@@ -136,7 +140,8 @@ attributes = {
     "speechiness": [],
     "valence": [],
     "tempo": [],
-    "loudness": []
+    "loudness": [],
+    "year": []
 }
 
 for feature in audio_features:
@@ -149,22 +154,37 @@ for feature in audio_features:
     attributes["valence"].append(feature["valence"])
     attributes["tempo"].append(feature["tempo"])
     attributes["loudness"].append(feature["loudness"])
+
+for track in tracks['items']:
+    attributes["year"].append(int(track['track']['album']['release_date'][:4]))
 # find median of each attribute
 for key, value in attributes.items():
-    attributes[key] = int(np.median(value) * (100 if key != "loudness" or key != "tempo" else 1))
+    multi = 100
+    if key == "loudness" or key == "tempo" or key == "year":
+        multi = 1
+
+    attributes[key] = int(np.median(value) * multi)
 
 # correlate the averages to a phrase. If the average is below 25, use "low". If the average is above 25 and below 75,
 # use medium. If the average is above 75, use high.
 levels = {}
 for key, value in attributes.items():
-    if value < 0:
-        # it's loudness, so we want to use negative numbers
+    if key == "loudness":
         if value > -4:
             levels[key] = "high"
         elif -4 > value > -8:
             levels[key] = "medium"
         else:
             levels[key] = "low"
+        continue
+    elif key == "year":
+        if value > 2020:
+            levels[key] = "new"
+        elif 2020 < value < 2010:
+            levels[key] = "medium"
+        else:
+            levels[key] = "old"
+        continue
 
     if value < 30:
         levels[key] = "low"
@@ -210,7 +230,7 @@ else:
     for i, track in enumerate(tracks['items']):
         if i >= num:
             break
-        #check if url appears in img_urls
+        # check if url appears in img_urls
         if sp.track(track['track']['id'])['album']['images'][0] in img_urls:
             num += 1
             continue
@@ -323,21 +343,22 @@ else:
             title = title.split("(")[0]
         objects.append(title)
     print(objects)
-    music_describers.append(f"The artwork should be a scene with {objects[random.randint(0, len(objects)-1)]} in it.")
+    music_describers.append(f"The artwork should be a scene with {objects[random.randint(0, len(objects) - 1)]} in it.")
 
 # endregion
 # replace all instances of the word regardless of case
 
 
 p = (f'I am going to describe the artwork for a playlist called "{selected_playlist["name"]}". DO NOT INCLUDE TEXT OR '
-     f'PEOPLE IN THE ARTWORK. The playlist is ')
+     f'PEOPLE IN THE ARTWORK. The borders of the artwork should be one solid color. The playlist should represent'
+     f'an art style from the time of "{attributes["year"]}. The artwork should be ')
 
 for value in music_describers:
     p += value + " "
 
 os.system('clear')
 print(
-    f"acousticness: {attributes['acousticness']}%, danceability: {attributes['danceability']}%, energy: {attributes['energy']}%, instrumentalness: {attributes['instrumentalness']}%, liveness: {attributes['liveness']}%, speechiness: {attributes['speechiness']}%, valence: {attributes['valence']}%, tempo: {attributes['tempo']}bpm, loudness: {attributes['loudness']}db.")
+    f"acousticness: {attributes['acousticness']}%, danceability: {attributes['danceability']}%, energy: {attributes['energy']}%, instrumentalness: {attributes['instrumentalness']}%, liveness: {attributes['liveness']}%, speechiness: {attributes['speechiness']}%, valence: {attributes['valence']}%, tempo: {attributes['tempo']}bpm, loudness: {attributes['loudness']}db, year: {attributes['year']}")
 print("Selected playlist: " + selected_playlist['name'] + "\n")
 
 print("\n\n\n Here's the prompt we're sending to OpenAI: " + p)
@@ -345,7 +366,7 @@ client = openai.OpenAI()
 
 response = None
 
-generate_image()
+image_url = generate_image()
 userResponse = ""
 
 while userResponse.lower() != "exit":
@@ -391,4 +412,4 @@ while userResponse.lower() != "exit":
         print("Done!")
         break
     os.system('clear')
-    generate_image()
+    image_url = generate_image()
