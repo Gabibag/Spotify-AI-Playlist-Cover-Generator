@@ -29,7 +29,7 @@ account. Each image costs about 0.04$ to generate, so 5$ should be enough for ab
 6. Follow the prompts in the terminal window
 
 ### Linux
-If you're using linux, you don't need this.
+It's a basic python script.
 
 ## How does it work?
 This script uses the spotify API to get the audio features of each song in your playlist. Then it tries to understand 
