@@ -79,3 +79,5 @@ fabric.properties
 
 .env
 .idea
+.cache
+.DS_Store

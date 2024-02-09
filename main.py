@@ -3,7 +3,7 @@ import os
 import random
 import time
 from time import sleep
-import openai
+from openai import OpenAI
 import scipy
 import spotipy
 from PIL import Image
@@ -12,10 +12,14 @@ from dotenv import load_dotenv
 import urllib.request
 import numpy as np
 import requests as rq
+import os
+import numpy as np
+from PIL import Image
 
 
 def generate_artwork(i):
     global response
+    client = OpenAI()
     response = client.images.generate(
         model="dall-e-3",
         prompt=i,
@@ -30,16 +34,9 @@ def generate_artwork(i):
 def generate_image():
     global error, image_url
     print("Generating artwork...")
-    try:
-        generate_artwork(p)
-    except openai.RateLimitError as error:
-        print("Rate limited, will try again in 2 minutes.")
-        sleep(120)
-        generate_artwork(p)
-    except openai.BadRequestError as error:
-        os.system('clear')
-        print("Looks like something was wrong with the prompt. We'll try again with a different prompt.")
-        generate_artwork(p)
+
+    generate_artwork(p)
+    
     image_url = response.data[0].url
     # send the url to a url shortener
     u = rq.post("https://cleanuri.com/api/v1/shorten", data={"url": image_url}).json()["result_url"]
@@ -208,41 +205,27 @@ levels['valence'] = v
 music_describers = []
 
 # region: colors
-if levels['valence'] == "sad" and levels['danceability'] == "low":
-    music_describers.append("The artwork should be in a darker colors. Mainly either dark blue, dark purple, "
-                            "dark green, or black.")
-if levels['valence'] == "sad" and levels['danceability'] == "high":
-    music_describers.append("The artwork should be aggressive and bright colors.")
-elif levels['valence'] == "happy" or levels['danceability'] == "high":
-    music_describers.append("The artwork should be a bright, vibrant colors.")
-elif levels['acousticness'] == "high":
-    music_describers.append("The artwork should be in orange sunset colors.")
-elif levels['energy'] == "low":
-    music_describers.append("The artwork should be in cool colors.")
-elif levels['energy'] == "high":
-    music_describers.append("The artwork should be in warm colors.")
-elif levels['speechiness'] == "high":
-    music_describers.append("The artwork should be beige, off white, light grey or brown colors.")
-else:
-    # try grabbing the colors from 4 songs in the playlist using the track id
-    img_urls = []
-    num = 4
-    for i, track in enumerate(tracks['items']):
-        if i >= num:
-            break
-        # check if url appears in img_urls
-        if sp.track(track['track']['id'])['album']['images'][0] in img_urls:
-            num += 1
-            continue
-        img_urls.append(sp.track(track['track']['id'])['album']['images'][0])
-    imgs = []
-    colors = []
-    for url in img_urls:
-        urllib.request.urlretrieve(url['url'], "image.png")
-        imgs.append(Image.open("image.png"))
-        os.remove("image.png")
-    # get the average color of each image and store it in colors.
-    for img in imgs:
+# try grabbing the colors from 4 songs in the playlist using the track id
+img_urls = []
+num = 8
+for i, track in enumerate(tracks['items']):
+    if i >= num:
+        break
+    # check if url appears in img_urls
+    if sp.track(track['track']['id'])['album']['images'][0] in img_urls:
+        num += 1
+        continue
+    img_urls.append(sp.track(track['track']['id'])['album']['images'][0])
+imgs = []
+colors = []
+for url in img_urls:
+    urllib.request.urlretrieve(url['url'], "image.png")
+    imgs.append(Image.open("image.png"))
+    os.remove("image.png")
+
+# get the average color of each image and store it in colors.
+for img in imgs:
+    try:
         # dominant color in the image
         ar = np.asarray(img)
         shape = ar.shape
@@ -254,17 +237,22 @@ else:
         peak = codes[index_max]
         peak = peak.astype(int)
         colors.append(peak)
-    # convert the colors to hex
-    for i, color in enumerate(colors):
-        colors[i] = '#%02x%02x%02x' % (color[0], color[1], color[2])
-    s = "The artwork should be only in the color " if len(colors) == 1 else "The artwork should be in the colors "
-    for i, color in enumerate(colors):
-        if i == len(colors) - 1 and len(colors) > 1:
-            s += "and " + color
-        else:
-            s += color + ", "
-    s = s[:-2] + "."
-    music_describers.append(s)
+    except:
+        print("Error getting color from image")
+        continue
+
+# convert the colors to hex
+for i, color in enumerate(colors):
+    colors[i] = '#%02x%02x%02x' % (color[0], color[1], color[2])
+
+s = "The artwork should be only in the color " if len(colors) == 1 else "The artwork should be in the colors "
+for i, color in enumerate(colors):
+    if i == len(colors) - 1 and len(colors) > 1:
+        s += "and " + color
+    else:
+        s += color + ", "
+s = s[:-2] + "."
+music_describers.append(s)
 # endregion
 # region: texture
 if (
@@ -276,7 +264,7 @@ if (
         or
         (levels['speechiness'] == "low" and levels['loudness'] == "low")
 ):
-    music_describers.append("The artwork should be a smooth texture, like a gradient")
+    music_describers.append("The artwork should be a smooth texture, like a gradient, or glass, or the texture of wet, hard candy")
 elif (
         (levels['energy'] == "high" and levels['loudness'] != "low")
         or
@@ -284,7 +272,7 @@ elif (
         or
         (levels['acousticness'] == "low" and levels['loudness'] != "low")
 ):
-    music_describers.append("The artwork should be a roughly textured with noise")
+    music_describers.append("The artwork should have noise like slightly wrinkled paper or white noise overlayed")
 elif (
         (levels['energy'] == "low" and levels['loudness'] != "high")
         or
@@ -292,13 +280,7 @@ elif (
         or
         (levels['acousticness'] == "high" and levels['loudness'] != "high")
 ):
-    music_describers.append("The artwork should be a rough texture, like a watercolor painting")
-else:
-    textures = ["smooth", "rough", "soft", "hard", "grainy", "blurry", "sharp", "wet", "dry", "fuzzy", "sticky",
-                "shiny", "dull", "glossy", "sandy", "bumpy", "fluffy", "prickly", "slimy", "slippery", "spongy",
-                "wooly", "powdery", "silk", "velvet", "leather", "metallic", "plastic", "rubber", "glass", "wooden",
-                "paper", "cotton"]
-    music_describers.append(f"The artwork should be a {textures[random.randint(0, len(textures) - 1)]} texture")
+    music_describers.append("The artwork should be like a watercolor painting in a traditional art style")
 # endregion
 # region: objects
 if (
@@ -308,7 +290,7 @@ if (
         or
         (levels['acousticness'] == "low" and levels['loudness'] != "low")
 ):
-    music_describers.append("The artwork should be an abstract scene.")
+    music_describers.append("The artwork should be realistic with a focus on a single random object.")
 elif (
         (levels['valence'] == "sad" and levels['energy'] != "high")
         or
@@ -316,42 +298,36 @@ elif (
         or
         (levels['acousticness'] == "high" and levels['loudness'] != "high")
 ):
-    music_describers.append("The artwork should be a realistic scenery with the focus on a single object")
+    music_describers.append("The artwork should be a realistic, wide angle scenery of anything")
     # neutral scene
 elif (levels['energy'] == "medium" and levels['loudness'] == "medium" and levels['acousticness'] == "medium"
       and levels['valence'] == "neutral"):
     music_describers.append("The artwork should be a simple shape, such as a circle, square, triangle, diamond, "
                             "or a hexagon. Include only one shape, and use only two colors. Be minimalistic.")
-else:
-    objects = []
-    # grab 4 songs from the playlist and get the title of each song. Remove articles from the titles
-    words_to_remove = ["the", "a", "an", "of", "and", "or", "but", "is", "are", "was", "were", "be", "to", "in",
-                       "on", "at", "for", "by", "with", "from", "up", "about", "into", "through", "during", "before",
-                       "after", "above", "below", "to", "from", "up", "down", "in", "out", "off", "over", "under", "my",
-                       "your", "his", "her", "its", "our", "their", "this", "that", "these", "those", "which", "who",
-                       "what", "where", "when", "why", "how", "all", "any", "both", "each", "few", "more", "most",
-                       "other", "some", "such", "no", "nor", "not", "only", "own", "same", "so", "than", "too",
-                       "very", "s", "t", "can", "will", "just", "don", "should", "now"]
-
-    for i, track in enumerate(tracks['items']):
-        if i >= 4:
-            break
-        title = track['track']['name']
-        for word in words_to_remove:
-            title = remove_all(word, title)
-            # remove everything after a parenthesis
-            title = title.split("(")[0]
-        objects.append(title)
-    print(objects)
-    music_describers.append(f"The artwork should be a scene with {objects[random.randint(0, len(objects) - 1)]} in it.")
 
 # endregion
+# region: extras
+
+if levels['valence'] == "sad" and levels['danceability'] == "low":
+    music_describers.append("The artwork's colors should be darker")
+if levels['valence'] == "sad" and levels['danceability'] == "high":
+    music_describers.append("The artwork should be have chroma abberations.")
+elif levels['valence'] == "happy" or levels['danceability'] == "high":
+    music_describers.append("The artwork should have a lense flare.")
+elif levels['energy'] == "low":
+    music_describers.append("The artwork should be slightly fuzzy.")
+elif levels['energy'] == "high":
+    music_describers.append("The artwork should have a fracture through it.")
+
+
+# endregion
+
 # replace all instances of the word regardless of case
 
 
-p = (f'I am going to describe the artwork for a playlist called "{selected_playlist["name"]}". DO NOT INCLUDE TEXT OR '
-     f'PEOPLE IN THE ARTWORK. The borders of the artwork should be one solid color. The playlist should represent'
-     f'an art style from the time of "{attributes["year"]}. The artwork should be ')
+p = (f'I am going to describe the artwork for a playlist called "{selected_playlist["name"]}". DO NOT INCLUDE '
+     f'PEOPLE IN THE ARTWORK. Make sure the name of the playlist are in the image. The borders of the artwork should be one solid color. The playlist should represent'
+     f'an art style from the time of "{attributes["year"]}". ')
 
 for value in music_describers:
     p += value + " "
@@ -362,11 +338,8 @@ print(
 print("Selected playlist: " + selected_playlist['name'] + "\n")
 
 print("\n\n\n Here's the prompt we're sending to OpenAI: " + p)
-client = openai.ChatCompletion.create(
-    model="dall-e-3",
-    api_key=os.environ.get("OPENAI_API_KEY")
-    
-)
+
+
 response = None
 
 image_url = generate_image()
@@ -384,33 +357,23 @@ while userResponse.lower() != "exit":
         print("Applying artwork...")
         # formats the image url to be in base64 as a jpg
         urllib.request.urlretrieve(image_url, "image.png")
+        # now compress the png
+        
+        
+        
         im = Image.open("image.png")
         rgb_im = im.convert('RGB')
-        rgb_im.save('image.jpg')
-        with open("image.jpg", "rb") as f:
-            image = open("image.jpg", 'rb')
-        with open("image.jpg", "rb") as f:
+        rgb_im.save('image.jpeg', optimize=True, quality=75)
+        sleep(1)
+        encoded_image = ""
+        with open("image.jpeg", "rb") as f:
             encoded_image = base64.b64encode(f.read()).decode('utf-8')
-
+        
+        
+        sp.playlist_upload_cover_image(selected_playlist['id'], encoded_image)
+        
+        os.remove("image.jpeg")
         os.remove("image.png")
-
-        try:
-            sp.playlist_upload_cover_image(selected_playlist['id'], encoded_image)
-        # see if it timed out
-        except Exception as e:
-            # retry after 30 seconds
-            print("Looks like you've been rate limited. I'll try again in a couple seconds.")
-            sleep(30)
-
-            os.system('clear')
-            print("Applying artwork...")
-            try:
-                sp.playlist_upload_cover_image(selected_playlist['id'], encoded_image)
-            except Exception as e:
-                print("Looks like something went wrong. Try again later. Here's the error if you need it: " + str(e))
-                exit(0)
-            exit(0)
-        os.remove("image.jpg")
         os.system('clear')
         print("Done!")
         break
