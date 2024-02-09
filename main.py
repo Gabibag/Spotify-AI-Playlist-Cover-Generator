@@ -362,8 +362,11 @@ print(
 print("Selected playlist: " + selected_playlist['name'] + "\n")
 
 print("\n\n\n Here's the prompt we're sending to OpenAI: " + p)
-client = openai.OpenAI()
-
+client = openai.ChatCompletion.create(
+    model="dall-e-3",
+    api_key=os.environ.get("OPENAI_API_KEY")
+    
+)
 response = None
 
 image_url = generate_image()
